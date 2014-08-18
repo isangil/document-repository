@@ -1,0 +1,210 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the Document Repository installation profile.
+ */
+
+define('DOCUMENT_REPOSITORY_DEFAULT_THEME', 'document_repository_theme');
+
+/**
+ * Implements hook_install().
+ */
+function document_repository_install() {
+
+  document_repository_install_filter();
+
+  document_repository_install_user();
+
+  document_repository_install_block();
+
+  document_repository_install_system();
+
+  document_repository_install_taxonomy();
+
+  // Contrib modules
+  document_repository_install_admin_menu();
+
+  variable_set('menu_rebuild_needed', TRUE);
+
+  // Clear any normal messages from being displayed.
+  drupal_get_messages('status');
+}
+
+/**
+ * Profile install tasks for the block module.
+ */
+function document_repository_install_block() {
+  $blocks = array(
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => document_repository_DEFAULT_THEME,
+      'status' => 1,
+      'weight' => -22,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'main-menu',
+      'theme' => document_repository_DEFAULT_THEME,
+      'status' => 1,
+      'weight' => -20,
+      'region' => 'menu_bar',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => document_repository_DEFAULT_THEME,
+      'status' => 1,
+      'weight' => -20,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'help',
+      'theme' => document_repository_ADMIN_THEME,
+      'status' => 1,
+      'weight' => -22,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+    array(
+      'module' => 'system',
+      'delta' => 'main',
+      'theme' => document_repository_ADMIN_THEME,
+      'status' => 1,
+      'weight' => -20,
+      'region' => 'content',
+      'pages' => '',
+      'cache' => -1,
+    ),
+  );
+  $query = db_insert('block')->fields(array('module', 'delta', 'theme', 'status', 'weight', 'region', 'pages', 'cache'));
+  foreach ($blocks as $block) {
+    $query->values($block);
+  }
+  $query->execute();
+}
+
+/**
+ * Profile install tasks for the filter module.
+ */
+function document_repository_install_filter() {
+  $filtered_html_format = array(
+    'format' => 'filtered_html',
+    'name' => 'Filtered HTML',
+    'weight' => 0,
+    'filters' => array(
+      // URL filter.
+      'filter_url' => array(
+        'weight' => 0,
+        'status' => 1,
+      ),
+      // HTML filter.
+      'filter_html' => array(
+        'weight' => 1,
+        'status' => 1,
+      ),
+      // Line break filter.
+      'filter_autop' => array(
+        'weight' => 2,
+        'status' => 1,
+      ),
+      // HTML corrector filter.
+      'filter_htmlcorrector' => array(
+        'weight' => 10,
+        'status' => 1,
+      ),
+    ),
+  );
+  $filtered_html_format = (object) $filtered_html_format;
+  filter_format_save($filtered_html_format);
+
+  $full_html_format = array(
+    'format' => 'full_html',
+    'name' => 'Full HTML',
+    'weight' => 1,
+    'filters' => array(
+      // URL filter.
+      'filter_url' => array(
+        'weight' => 0,
+        'status' => 1,
+      ),
+      // HTML corrector filter.
+      'filter_htmlcorrector' => array(
+        'weight' => 10,
+        'status' => 1,
+      ),
+    ),
+  );
+  $full_html_format = (object) $full_html_format;
+  filter_format_save($full_html_format);
+}
+
+/**
+ * Profile install tasks for the system module.
+ */
+function document_repository_install_system() {
+  // Enable the default and admin themes.
+  variable_set('theme_default', document_repository_DEFAULT_THEME);
+
+  // Disable Bartik
+  //theme_disable(array('bartik'));
+
+  // Set settings for the theme including color scheme.
+  $form_state = array();
+  form_load_include($form_state, 'inc', 'system', 'system.admin');
+  $form_state['build_info']['args'][0] = document_repository_DEFAULT_THEME;
+  $form_state['values']['scheme'] = 'lterantarctic';
+  drupal_form_submit('system_theme_settings', $form_state);
+
+}
+
+/**
+ * Profile install tasks for the user module.
+ */
+function document_repository_install_user() {
+  // Enable user picture support and set the default to a square thumbnail option.
+  variable_set('user_pictures', '1');
+  variable_set('user_picture_dimensions', '1024x1024');
+  variable_set('user_picture_file_size', '800');
+  variable_set('user_picture_style', 'thumbnail');
+
+  // Do not allow user account creation by default.
+  variable_set('user_register', USER_REGISTER_ADMINISTRATORS_ONLY);
+
+  // Enable default permissions for system roles.
+  $format = filter_format_load('full_html');
+  $filtered_html_permission = filter_permission_name($format);
+  user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('access content', $filtered_html_permission));
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('access content', $filtered_html_permission));
+
+  // Create a default role for site administrators, with all available permissions assigned.
+  $admin_role = new stdClass();
+  $admin_role->name = 'administrator';
+  $admin_role->weight = 5;
+  user_role_save($admin_role);
+  user_role_grant_permissions($admin_role->rid, array_keys(module_invoke_all('permission')));
+  // Set this as the administrator role.
+  variable_set('user_admin_role', $admin_role->rid);
+
+  $account = user_load(1);
+  $account->roles[$admin_role->rid] = $admin_role->name;
+  $account->data['admin_select'] = 'admin_menu';
+  user_save($account);
+
+  // Create the Lost Seal roles.
+  $role = new stdClass();
+  $role->name = 'content contributor';
+  $role->weight = 2;
+  user_role_save($role);
+}
+
